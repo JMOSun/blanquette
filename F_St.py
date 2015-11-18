@@ -11,12 +11,15 @@ import CoolProp.CoolProp as CP
 import matplotlib.pylab as plt
 import scipy.optimize as optimization
 from random import uniform
+import lmfit
 
 from scipy.integrate import simps
 
 
 
 global tf,V0,P0,T0,fE
+
+compt_plot=0
 
 fE=np.poly1d([   3.50954367,  -25.82030936,   84.77714828, -163.75296739,
         206.48972107, -178.40534573,  108.13744199,  -46.87890618,
@@ -86,11 +89,33 @@ class S(object):
     """
     Classe représentant l'état du système par son volume, sa pression et l'énergie emmagasiné"""
     def __init__(self,P):
+        if P>250e5:
+            P=250e5
+        if  P<100e5:
+            P=100e5
         self.P=P
         rho=CP.PropsSI('D','T',T0,'P',P,'Air')
         self.V=rho0*V0/rho
         self.E=fE(P/250e5)*(500*3600*1e3)
+        
+    def Latt(Liste,Attribut):
+        T=[]
+        for k in Liste:
+            T.append(k.__getattribute__(Attribut))
+            return T
 
+    def ListToTab(L):
+        n=len(L)
+        T=np.zeros(n)
+        i=0
+        for k in L:
+            T[i]=k
+            i+=1
+        return T
+    
+    def Tab(Liste,Attribut):
+        return ListToTab(Latt(Liste,Attribut))
+    
     def f_ch(self,rpm,tf):
         
         class output(object):
@@ -101,7 +126,6 @@ class S(object):
             P       = None
             V       = None
             Pn      = None
-            test    = None
             
     
         Nt=2
@@ -166,14 +190,25 @@ class S(object):
         eta_tot=(Pu_hydr/Pu_elec_res)**(-sign)
         
         out=output()
-        out.test=rho
         out.eta_tot=eta_tot
-        #out.eta_tot=eta_stock
         out.Pu_hydr=Pu_hydr
-        out.Pu_elec=Pu_elec_res
-        #out.Pu_elec=Pu_elec          
+        out.Pu_elec=Pu_elec_res      
         out.Pu_meca=Pu_meca
         
+        if Pn[0]==250e5 and rpm >0:
+            out.eta_tot=0
+            out.Pu_hydr=0
+            out.Pu_elec=0
+            out.Pu_meca=0
+            Pn[1]=Pn[0]
+        
+        if Pn[0]==100e5 and rpm <0:
+            out.eta_tot=0
+            out.Pu_hydr=0
+            out.Pu_elec=0
+            out.Pu_meca=0
+            Pn[1]=Pn[0]
+            
         S1=S(Pn[1])
    
         return S1,out
@@ -217,7 +252,8 @@ class S(object):
     def f_ch2_S(self,Pelec):
         a,b,c=self.f_ch2(Pelec)
         return a
-
+        
+    
     def T(self,q,t):
         P0=q/t
         N=t/10
@@ -231,6 +267,19 @@ class S(object):
             Tpow.append(TS[-1].f_ch2(P)[1])
         return TS,Tpow,time
     
+    def Tr(self,q,t,r):
+        P0=q/t
+        N=t/10
+        time=np.linspace(0,t,num=N+1)
+        TS=[]
+        Tpow=[]
+        TS.append(self)
+        for k in time[1:]:
+            P=P0+uniform(-1,1)*r*q/t
+            TS.append(TS[-1].f_ch2(P)[0])
+            Tpow.append(TS[-1].f_ch2(P)[1])
+        return TS,Tpow,time    
+    
     def TSn(self,q,t):
         TS=self.T(q,t)[0]
         return TS
@@ -238,8 +287,27 @@ class S(object):
     def Tpow(self,q,t):
         TP=self.T(q,t)[1]
         return TP
+        
+    def Bestr(self,q,t):
+        compt=0
+        def y(r):
+            global compt
+            tab=np.zeros(10)
+            for k in range(10):
+                Pu=self.Tr(q,t,r)[1]
+                eta=ListToTab(Latt(Pu,'eta_tot'))
+                tab[k]=np.mean(eta)
+            m=np.mean(tab)
+            compt+=1
+            print(compt)
+            return 1-m
+        res = optimization.minimize_scalar(y,bounds=(0, 1), method='bounded')
+        #M=lmfit.minimize(y,p,method='nelder')
+        return res.x
+            
 
-def Tab(Liste,Attribut):
+
+def Latt(Liste,Attribut):
     T=[]
     for k in Liste:
         T.append(k.__getattribute__(Attribut))
@@ -254,8 +322,37 @@ def ListToTab(L):
         i+=1
     return T
 
-#def DrawTab(Liste,Attribut):
+def Tab(Liste,Attribut):
+    return ListToTab(Latt(Liste,Attribut))
+
+def DrawTab(Liste,Attribut,new=True,r=None):
+    #if new:
+    #    plt.show()
+    units={'P':'Pa', 'V':'m³', 'E':'kWh', 'eta_tot':'%', 'Pu_hydr':'kW','Pu_elec':'kW','Pu_meca':'kW',}
+    time=Liste[-1]
+    if Attribut in ['P','V','E']:
+        T=Tab(Liste[0],Attribut)
+        boo=False
+    else:
+        T=Tab(Liste[1],Attribut)
+        boo=True
+    if boo :
+        time=time[1:]
+    if new:
+        plt.figure(compt_plot)
+    if r<> None:
+        lbl1='r = '+str(r)
+    else :
+        lbl1=Attribut
+    plt.plot(time,T,label=lbl1)
+    plt.xlabel('[s]')
+    plt.ylabel('['+units[Attribut]+']')
+    plt.legend()
     
+
+
+
+U=['Pa','m³','kWh','kW','%']
 
 
 
@@ -266,40 +363,54 @@ Pavg=[]
 Eta_avg=[]
 compt=0.0
 
-for k in range (10):
-    S0=S(150e5)
-    
-    T3600=S0.T(100*3600*1000,3600)
-    
-    S3600=S0.TSn(100*3600*1000,3600)
-    
-    Pu3600=S0.Tpow(100*3600*1000,3600)
-    
-    plt.plot(np.linspace(0,3600,num=360),Tab(Pu3600,'Pu_elec'),'+')
-    
-    
-    TPu=ListToTab(Tab(Pu3600,'Pu_elec'))
-    
-    Eta=ListToTab(Tab(Pu3600,'eta_tot'))
-    
-    t=T3600[2]
-    
-    
-    Pu_moy=simps(TPu,t[1:])/(t[-1]-t[1])
-    Pavg.append(Pu_moy)    
-    
-    if abs(Pu_moy-100e3)/100e3 <0.01:
-        compt+=1
-    
-    eta_moy=simps(Eta,t[1:])/(t[-1]-t[1])
-    Eta_avg.append(eta_moy)
-    n=k+1
+#for k in range (10):
+S0=S(150e5)
+
+
+r_optim=S0.Bestr(50*3600*1000,7200)
+
+
+
+
+Sf=S(250e5)
+
+
+"""
+T3600=S0.T(100*3600*1000,3600)
+
+S3600=S0.TSn(100*3600*1000,3600)
+
+Pu3600=S0.Tpow(100*3600*1000,3600)
+
+plt.figure(1)
+plt.plot(np.linspace(0,3600,num=360),Latt(Pu3600,'Pu_elec'),'+')
+
+plt.figure(2)
+plt.plot(np.linspace(0,3600,num=361),ListToTab(Latt(S3600,'E'))/3600/1000,'+')
+"""
+"""
+TPu=ListToTab(Tab(Pu3600,'Pu_elec'))
+
+Eta=ListToTab(Tab(Pu3600,'eta_tot'))
+
+t=T3600[2]
+
+
+Pu_moy=simps(TPu,t[1:])/(t[-1]-t[1])
+Pavg.append(Pu_moy)    
+
+if abs(Pu_moy-100e3)/100e3 <0.01:
+    compt+=1
+
+eta_moy=simps(Eta,t[1:])/(t[-1]-t[1])
+Eta_avg.append(eta_moy)
+n=k+1
 
 print('Part des puissances moyennes considérés égales à 100 kW')
 print(str(compt/n*100.00)+' %')
 
 #T0=T3600[-1].TSn(-100*3600*1000,3600)
-
+"""
 """
 rpm1=1500*np.ones(50)
 
