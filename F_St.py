@@ -10,6 +10,9 @@ import xlrd
 import CoolProp.CoolProp as CP
 import matplotlib.pylab as plt
 import scipy.optimize as optimization
+from random import uniform
+
+from scipy.integrate import simps
 
 
 
@@ -46,13 +49,13 @@ first_sheet2 = book2.sheet_by_index(0)
 def rdm_el(Pu):
     x=[k.value for k in first_sheet1.col(0)]
     y=[k.value for k in first_sheet1.col(1)]
-    return np.interp(Pu,x,y)
+    return np.interp(abs(Pu),x,y)
 
 
 def var_el(Pu):
     x=[k.value for k in first_sheet2.col(0)]
     y=[k.value for k in first_sheet2.col(1)]
-    return np.interp(Pu,x,y)    
+    return np.interp(abs(Pu),x,y)    
     
     
 def eta_hydrau(rpm,P):
@@ -79,7 +82,7 @@ def f_Pstar(Psurf):
     f = np.poly1d(z)
     return f(Psurf)
 
-class S:
+class S(object):
     """
     Classe représentant l'état du système par son volume, sa pression et l'énergie emmagasiné"""
     def __init__(self,P):
@@ -98,6 +101,7 @@ class S:
             P       = None
             V       = None
             Pn      = None
+            test    = None
             
     
         Nt=2
@@ -142,7 +146,7 @@ class S:
         while err>1e-3:
             Qq=cyl*rpm/1.0e6/60.*eta_hydrau(rpm,Pp/1.0e5)**(-sign)
             Vv=V[0]-Qq*Dt
-            rho_r=rho0*V[0]/Vv
+            rho_r=rho[0]*V[0]/Vv
             Pp2=CP.PropsSI('P','T',T0,'D',rho_r,'Air')
             err=abs(Pp2-Pp)/Pp
             Pp=Pp2
@@ -162,9 +166,12 @@ class S:
         eta_tot=(Pu_hydr/Pu_elec_res)**(-sign)
         
         out=output()
+        out.test=rho
         out.eta_tot=eta_tot
+        #out.eta_tot=eta_stock
         out.Pu_hydr=Pu_hydr
         out.Pu_elec=Pu_elec_res
+        #out.Pu_elec=Pu_elec          
         out.Pu_meca=Pu_meca
         
         S1=S(Pn[1])
@@ -198,12 +205,12 @@ class S:
         else :
             x0=-1500
             
-        print(residual(1500,Pelec))
+        
            
         Pu_cible=Pelec
             
         p1, success = optimization.leastsq(residual, x0, args=Pu_cible)
-        print(residual(p1,Pelec))
+        #print(residual(p1,Pelec))
         S1,Dat_out=self.f_ch(p1,10)
         return S1,Dat_out, p1
     
@@ -211,14 +218,94 @@ class S:
         a,b,c=self.f_ch2(Pelec)
         return a
 
-S0=S(100e5)
+    def T(self,q,t):
+        P0=q/t
+        N=t/10
+        time=np.linspace(0,t,num=N+1)
+        TS=[]
+        Tpow=[]
+        TS.append(self)
+        for k in time[1:]:
+            P=P0+uniform(-1,1)*0.5*q/t
+            TS.append(TS[-1].f_ch2(P)[0])
+            Tpow.append(TS[-1].f_ch2(P)[1])
+        return TS,Tpow,time
+    
+    def TSn(self,q,t):
+        TS=self.T(q,t)[0]
+        return TS
+    
+    def Tpow(self,q,t):
+        TP=self.T(q,t)[1]
+        return TP
 
-S1,power=S0.f_ch(1500,10)
+def Tab(Liste,Attribut):
+    T=[]
+    for k in Liste:
+        T.append(k.__getattribute__(Attribut))
+    return T
 
+def ListToTab(L):
+    n=len(L)
+    T=np.zeros(n)
+    i=0
+    for k in L:
+        T[i]=k
+        i+=1
+    return T
+
+#def DrawTab(Liste,Attribut):
+    
+
+
+
+#S1,power=S0.f_ch(-1500,10)
+#print(S1.__getattribute__('P'))
+
+Pavg=[]
+Eta_avg=[]
+compt=0.0
+
+for k in range (10):
+    S0=S(150e5)
+    
+    T3600=S0.T(100*3600*1000,3600)
+    
+    S3600=S0.TSn(100*3600*1000,3600)
+    
+    Pu3600=S0.Tpow(100*3600*1000,3600)
+    
+    plt.plot(np.linspace(0,3600,num=360),Tab(Pu3600,'Pu_elec'),'+')
+    
+    
+    TPu=ListToTab(Tab(Pu3600,'Pu_elec'))
+    
+    Eta=ListToTab(Tab(Pu3600,'eta_tot'))
+    
+    t=T3600[2]
+    
+    
+    Pu_moy=simps(TPu,t[1:])/(t[-1]-t[1])
+    Pavg.append(Pu_moy)    
+    
+    if abs(Pu_moy-100e3)/100e3 <0.01:
+        compt+=1
+    
+    eta_moy=simps(Eta,t[1:])/(t[-1]-t[1])
+    Eta_avg.append(eta_moy)
+    n=k+1
+
+print('Part des puissances moyennes considérés égales à 100 kW')
+print(str(compt/n*100.00)+' %')
+
+#T0=T3600[-1].TSn(-100*3600*1000,3600)
+
+"""
 rpm1=1500*np.ones(50)
 
 TS50,Tpow50=S0.f_ch_T(rpm1,500)
 
-S2=S0.f_ch2_S(100e3)
+S2=S0.f_ch2_S(-100e3)
 
-#S2,rpm1=f_ch2(100e3,tf)
+S3=S2.f_ch2_S(-100e3)
+"""

@@ -19,8 +19,8 @@ T0=293.15
 rho0=CP.PropsSI('D','T',T0,'P',P0,'Air')
 cyl=242
 
-Pu_test=np.linspace(10.0e3,100.0e3,10)
-
+#Pu_test=np.linspace(10.0e3,100.0e3,10)
+Pu_test=[100e3]
 plt.ion()
 
 
@@ -73,6 +73,12 @@ def f_Pstar(Psurf):
     return f(Psurf)    
     
 z=[]
+
+Xall=np.zeros(10*51)
+Yall=np.zeros(10*51)
+
+i1=0
+i2=0
 
 for Pu0 in Pu_test:
 
@@ -147,6 +153,7 @@ for Pu0 in Pu_test:
             eta_tot[i]=Pu_hydr[i]/Pu_elec_res[i]
             
             out=output()
+            out.test=rho
             out.eta_tot=eta_tot
             out.Pu_hydr=Pu_hydr
             out.Pu_elec=Pu_elec_res
@@ -185,23 +192,31 @@ for Pu0 in Pu_test:
         W_in[i+1]=W_in[i]+Dat_out.Pu_hydr[i]*(time[i+1]-time[i])
     
     
-    """
+    
     plt.figure(0)
-    x=W_in/(5*3600*100e3)
-    y=Dat_out.Pn/250e5
+    y=W_in/(500*3600*1e3)
+    x=Dat_out.Pn/(250e5)
     
-    plt.plot(x,y,'+')
+    for k in y:
+        Yall[i1]=k
+        i1+=1
+        
+    for k in x:
+        Xall[i2]=k
+        i2+=1
+
+    plt1=plt.plot(x,y,'+')
     
-    zf=np.polyfit(x, y, 3)
+    zf=np.polyfit(x, y, 9)
     fz = np.poly1d(zf)
+    print(fz(100e5/250e5))
     
     x_new = np.linspace(min(x), max(x), 50)
     y_new = fz(x_new)
     
-    plt.plot(x_new,y_new)    
-    plt.xlabel('Energie stockée [J]')
-    plt.ylabel('Pression [Pa]')
-    
+    plt2=plt.plot(x_new,y_new)    
+
+    """
     plt.figure(1)
     x=Dat_out.P
     y=Dat_out.eta_tot
@@ -227,4 +242,18 @@ for Pu0 in Pu_test:
     plt.figure(3)
     plt.plot(time,Dat_out.V)
     """
+"""
+plt.figure(1)
 
+plt1=plt.plot(Xall,Yall,'+')
+    
+zf2=np.polyfit(Xall, Yall, 3)
+fz2 = np.poly1d(zf2)
+
+print(fz2(100e5/250e5))
+
+x_new = np.linspace(min(Xall), max(Xall), 100)
+y_new = fz2(x_new)
+
+plt2=plt.plot(x_new,y_new)
+"""
