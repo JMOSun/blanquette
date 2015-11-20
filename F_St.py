@@ -10,20 +10,29 @@ import xlrd
 import CoolProp.CoolProp as CP
 import matplotlib.pylab as plt
 import scipy.optimize as optimization
-from random import uniform
+import random as rdm
+import numpy.random as alea
 import lmfit
+import pickle
+import os.path
+import time as temps
 
 from scipy.integrate import simps
 
 
 
-global tf,V0,P0,T0,fE
+global tf,V0,P0,T0,fE,N
+
+#N2011=np.load('N_2011.npy')
 
 compt_plot=0
 
+# Fonction reliant la pression dans le réservoir et la quantité d'énergie stockée
 fE=np.poly1d([   3.50954367,  -25.82030936,   84.77714828, -163.75296739,
         206.48972107, -178.40534573,  108.13744199,  -46.87890618,
          15.55363657,   -2.64106872])
+         
+#Définition de l'état où l'énergie est nulle         
 V0=200
 Vf=V0/2.5
 V1=200
@@ -49,46 +58,46 @@ first_sheet2 = book2.sheet_by_index(0)
     
 
 
-def rdm_el(Pu):
+def rdm_el(Pu): #Rendement mécanique -> électrique
     x=[k.value for k in first_sheet1.col(0)]
     y=[k.value for k in first_sheet1.col(1)]
     return np.interp(abs(Pu),x,y)
 
 
-def var_el(Pu):
+def var_el(Pu): #Rendement de l'inverter
     x=[k.value for k in first_sheet2.col(0)]
     y=[k.value for k in first_sheet2.col(1)]
     return np.interp(abs(Pu),x,y)    
     
     
-def eta_hydrau(rpm,P):
+def eta_hydrau(rpm,P): #Rendement volumètrique de la pompe
     S=1/(-2.987894025497691342e+00*abs(rpm)/P-6.333293557613091096e-01)+1-1.758296915625696477e-03
     S=np.clip(S,0.01,1)
     return S
 
-def Cf(rpm):
+def Cf(rpm): #Coefficient de frottement dans la pompe
     a=0.000000014
     b=0.000000
     c=0.23
     return a*rpm**2+b*abs(rpm)+c
 
-def dQ(rho):
+def dQ(rho): #Chaleur à évacuer
     return 9.021557E+01*np.log(rho) - 2.368101E+01
     
-def f_eta_stock(Pstar):
+def f_eta_stock(Pstar): #Rendement du stockage 
     z=[-0.85423949,  1.85148906]
     f = np.poly1d(z)
     return f(Pstar)
 
-def f_Pstar(Psurf):
+def f_Pstar(Psurf): #Influence de la puissance thermique à évacuer sur l'écart entre la pression et la pression isotherme
     z=[ -4.31007918e-08,   1.57353400e-04,   1.00956153e+00]
     f = np.poly1d(z)
     return f(Psurf)
 
-class S(object):
+class S(object): #Classe représentant l'état du sysème définie par sa pression, son volume et l'énergie stockée
     """
     Classe représentant l'état du système par son volume, sa pression et l'énergie emmagasiné"""
-    def __init__(self,P):
+    def __init__(self,P): #Etat définie à partir de la valeur sa pression
         if P>250e5:
             P=250e5
         if  P<100e5:
@@ -98,7 +107,7 @@ class S(object):
         self.V=rho0*V0/rho
         self.E=fE(P/250e5)*(500*3600*1e3)
         
-    def Latt(Liste,Attribut):
+    def Latt(Liste,Attribut): #Liste contenant la valeur de l'attribut
         T=[]
         for k in Liste:
             T.append(k.__getattribute__(Attribut))
@@ -113,10 +122,10 @@ class S(object):
             i+=1
         return T
     
-    def Tab(Liste,Attribut):
+    def Tab(Liste,Attribut): #Tableau contenant la valeur de l'attribut
         return ListToTab(Latt(Liste,Attribut))
     
-    def f_ch(self,rpm,tf):
+    def f_ch(self,rpm,tf): #Fonction calculant l'état S1 à partir de S0, de la vitesse de rotation et du temps d'éxécution
         
         class output(object):
             Pu_meca = None
@@ -213,7 +222,7 @@ class S(object):
    
         return S1,out
         
-    def f_ch_T(self,rpm,tf):
+    def f_ch_T(self,rpm,tf): 
         Nt=len(rpm)
         time=np.linspace(0,tf,Nt+1)
         Dt=time[1]-time[0]
@@ -228,7 +237,7 @@ class S(object):
     
     
 
-    def f_ch2(self,Pelec):     
+    def f_ch2(self,Pelec): #Effectue la même chose que f_ch mais utilise la puissance électrique au lieu de la vitesse de rotation     
         #Puissance Pelec pendant 10 secondes (intervalle de temps choisi de façon à avoir une vitesse de rotation constante sur la période)
         def residual(xdat,ydat):
             S,P=self.f_ch(xdat,10)
@@ -254,32 +263,42 @@ class S(object):
         return a
         
     
-    def T(self,q,t):
+    def Tr(self,q,t,r): #Fonction similaire à la précédente où les bornes de la puissance sont à indiquer
+        global N2011
+        
+        def sigN(i):
+            T=np.zeros(i)
+            for k in range(i):
+                x=alea.randn()
+                if (x>-1) and (x<1) :
+                    T[k]=x
+                elif x<0:
+                    T[k]=-1
+                else :
+                    T[k]=1 
+            return T
+        
+        
         P0=q/t
         N=t/10
         time=np.linspace(0,t,num=N+1)
         TS=[]
         Tpow=[]
+        sigN1=sigN(N)
         TS.append(self)
+        i=0
         for k in time[1:]:
-            P=P0+uniform(-1,1)*0.5*q/t
+            P=P0+sigN1[i]*r*(100-abs(P0))
             TS.append(TS[-1].f_ch2(P)[0])
             Tpow.append(TS[-1].f_ch2(P)[1])
-        return TS,Tpow,time
-    
-    def Tr(self,q,t,r):
-        P0=q/t
-        N=t/10
-        time=np.linspace(0,t,num=N+1)
-        TS=[]
-        Tpow=[]
-        TS.append(self)
-        for k in time[1:]:
-            P=P0+uniform(-1,1)*r*q/t
-            TS.append(TS[-1].f_ch2(P)[0])
-            Tpow.append(TS[-1].f_ch2(P)[1])
+            i+=1
         return TS,Tpow,time    
     
+    def T(self,q,t): #Renvoie les états successifs et les puissances mises en jeu à partir d'une quantité d'énergie à emmagasiner q sur un temps t
+        TS,Tpow,time=self.Tr(q,t,0.5)
+        return TS,Tpow,time
+    
+
     def TSn(self,q,t):
         TS=self.T(q,t)[0]
         return TS
@@ -287,7 +306,8 @@ class S(object):
     def Tpow(self,q,t):
         TP=self.T(q,t)[1]
         return TP
-        
+    """
+    # Fonction qui recherche les bornes permettant de maximiser le rendement    
     def Bestr(self,q,t):
         compt=0
         def y(r):
@@ -301,12 +321,47 @@ class S(object):
             compt+=1
             print(compt)
             return 1-m
+        res = optimization.minimize_scalar(y,bounds=(0, 0.9), method='bounded')
+        #M=lmfit.minimize(y,p,method='nelder')
+        return res.x
+    """
+    
+    # Fonction qui recherche les bornes permettant de maximiser l'énergie stocker    
+    def Bestr(self,q,t):
+        compt=0
+        def y(r):
+            global compt
+            tab=np.zeros(10)
+            for k in range(10):
+                TSf=self.Tr(q,t,r)[0]
+                E=ListToTab(Latt(TSf,'E'))
+                tab[k]=E[-1]
+            m=np.mean(tab)
+            compt+=1
+            print(compt)
+            return 1-m
         res = optimization.minimize_scalar(y,bounds=(0, 1), method='bounded')
         #M=lmfit.minimize(y,p,method='nelder')
         return res.x
-            
-
-
+    """
+    # Fonction qui recherche les bornes permettant de minimiser les pertes    
+    def Bestr(self,q,t):
+        compt=0
+        def y(r):
+            global compt
+            tab=np.zeros(10)
+            for k in range(10):
+                TPw=self.Tr(q,t,r)[1]
+                E=Tab(TPw,'Pu_hydr')-Tab(TPw,'Pu_elec')
+                tab[k]=np.linalg.norm(E,2)
+            m=np.mean(tab)
+            compt+=1
+            print(compt)
+            return m
+        res = optimization.minimize_scalar(y,bounds=(0, 1), method='bounded')
+        #M=lmfit.minimize(y,p,method='nelder')
+        return res.x
+    """
 def Latt(Liste,Attribut):
     T=[]
     for k in Liste:
@@ -325,7 +380,8 @@ def ListToTab(L):
 def Tab(Liste,Attribut):
     return ListToTab(Latt(Liste,Attribut))
 
-def DrawTab(Liste,Attribut,new=True,r=None):
+def DrawTab(Liste,Attribut,new=True,r=None,mrkr=None,ls=''):
+    global compt_plot
     #if new:
     #    plt.show()
     units={'P':'Pa', 'V':'m³', 'E':'kWh', 'eta_tot':'%', 'Pu_hydr':'kW','Pu_elec':'kW','Pu_meca':'kW',}
@@ -340,40 +396,96 @@ def DrawTab(Liste,Attribut,new=True,r=None):
         time=time[1:]
     if new:
         plt.figure(compt_plot)
+    else:
+        compt_plot+=1
     if r<> None:
         lbl1='r = '+str(r)
     else :
         lbl1=Attribut
-    plt.plot(time,T,label=lbl1)
+    plt.plot(time,T,label=lbl1,marker=mrkr,linestyle=ls)
     plt.xlabel('[s]')
     plt.ylabel('['+units[Attribut]+']')
-    plt.legend()
+    plt.legend(loc='upper left')
     
 
 
+"""
 
+"""
 U=['Pa','m³','kWh','kW','%']
 
-
+"""
 
 #S1,power=S0.f_ch(-1500,10)
 #print(S1.__getattribute__('P'))
 
 Pavg=[]
 Eta_avg=[]
-compt=0.0
+
 
 #for k in range (10):
+
+
+r=[]
+"""
+
+compt=0.0
+
+resT=[]
+
+
 S0=S(150e5)
+i=0
+
+Pu0=60
+for k in [60, 40, -40]: 
+    if os.path.isfile('r'+str(k)): 
+        with open('r'+str(k), 'rb') as fichier:
+            mon_depickler = pickle.Unpickler(fichier)
+            rlist=mon_depickler.load()
+            #T=mon_depickler.load()
+    else :
+        rlist=[]  
+    
+    for j in range(5):
+        debut=temps.time()
+        r=S0.Bestr(k*3600*1000,3600)
+        fin=temps.time()
+        print(r)
+        print(fin-debut)
+        #T=S0.Tr(Pu0*3600*1000,3600,r)
+        #T2=S0.Tr(Pu0*3600*1000,3600,0.2)
+        rlist.append(r)
+        
+    with open('r'+str(k), 'wb') as fichier:
+        mon_pickler = pickle.Pickler(fichier)
+        mon_pickler.dump(rlist)
 
 
-r_optim=S0.Bestr(50*3600*1000,7200)
-
-
+"""
+DrawTab(T,'Pu_elec',new=True,r=0.045261488015355414,mrkr='+')
+DrawTab(T2,'Pu_elec',new=False,r=0.2,mrkr='+')  
+"""
+"""
+for k in range(5):
+    if k==0:
+        boo2=True
+    else :
+        boo2=False
+    T=S0.Tr(100*3600*1000,3600,r)
+    T2=S0.Tr(100*3600*1000,3600,0.2)  
+    DrawTab(T,'E',new=boo2,r=r,mrkr='+')
+    DrawTab(T2,'E',new=False,r=0.2,mrkr='+') 
+"""    
+"""
+with open('donnees', 'wb') as fichier:
+    mon_pickler = pickle.Pickler(fichier)
+    mon_pickler.dump(r)
+    mon_pickler.dump(resT)
 
 
 Sf=S(250e5)
-
+"""
 
 """
 T3600=S0.T(100*3600*1000,3600)
