@@ -19,7 +19,7 @@ import time as temps
 
 from scipy.integrate import simps
 
-
+debut=temps.time()
 
 global tf,V0,P0,T0,fE,N
 
@@ -380,7 +380,7 @@ def ListToTab(L):
 def Tab(Liste,Attribut):
     return ListToTab(Latt(Liste,Attribut))
 
-def DrawTab(Liste,Attribut,new=True,r=None,mrkr=None,ls=''):
+def DrawTab(Liste,Attribut,new=True,r=None,mrkr='+',ls=''):
     global compt_plot
     #if new:
     #    plt.show()
@@ -429,38 +429,66 @@ Eta_avg=[]
 r=[]
 """
 
+
+
+
 compt=0.0
 
 resT=[]
 
 
-S0=S(150e5)
+S0=S(15567190.3125)
+print(S0.E/1744009560.0)
+S1=S0.f_ch2_S(100e3)
+
+fin=temps.time()
+
+#print(fin-debut)
+
+print(S1.P)
+print(S1.E/1744009560.0)
+
+"""
 i=0
 
 Pu0=60
-for k in [60, 40, -40]: 
-    if os.path.isfile('r'+str(k)): 
-        with open('r'+str(k), 'rb') as fichier:
-            mon_depickler = pickle.Unpickler(fichier)
-            rlist=mon_depickler.load()
-            #T=mon_depickler.load()
-    else :
-        rlist=[]  
-    
-    for j in range(5):
-        debut=temps.time()
-        r=S0.Bestr(k*3600*1000,3600)
-        fin=temps.time()
-        print(r)
-        print(fin-debut)
-        #T=S0.Tr(Pu0*3600*1000,3600,r)
-        #T2=S0.Tr(Pu0*3600*1000,3600,0.2)
-        rlist.append(r)
-        
-    with open('r'+str(k), 'wb') as fichier:
-        mon_pickler = pickle.Pickler(fichier)
-        mon_pickler.dump(rlist)
+#for k in [60, 40, -40]: 
+k=60
+if os.path.isfile('r'+str(k)): 
+    with open('r'+str(k), 'rb') as fichier:
+        mon_depickler = pickle.Unpickler(fichier)
+        rlist=mon_depickler.load()
+        #T=mon_depickler.load()
 
+boo2=True
+for j in rlist[:2]:
+    T=S0.Tr(60*3600*1000,3600,j)
+    DrawTab(T,'Pu_elec',new=boo2,r=j)
+    boo2=False
+    
+    
+boo2=True
+for j in rlist[:2]:
+    T=S0.Tr(60*3600*1000,3600,j)
+    DrawTab(T,'E',new=boo2,r=j)
+    boo2=False
+    
+"""
+"""
+for j in range(2):
+    debut=temps.time()
+    r=S0.Bestr(k*3600*1000,3600)
+    fin=temps.time()
+    print(r)
+    print(fin-debut)
+    #T=S0.Tr(Pu0*3600*1000,3600,r)
+    #T2=S0.Tr(Pu0*3600*1000,3600,0.2)
+    rlist.append(r)
+    
+with open('r'+str(k), 'wb') as fichier:
+    mon_pickler = pickle.Pickler(fichier)
+    mon_pickler.dump(rlist)
+"""
 
 """
 DrawTab(T,'Pu_elec',new=True,r=0.045261488015355414,mrkr='+')
